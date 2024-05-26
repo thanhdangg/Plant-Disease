@@ -71,6 +71,13 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 typeModel = choices[position];
+                Drawable drawable = binding.imageView.getDrawable();
+                if (drawable instanceof BitmapDrawable) {
+                    Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
+                    uploadImage(bitmap);
+                } else {
+                    Toast.makeText(MainActivity.this, "No image to upload", Toast.LENGTH_SHORT).show();
+                }
             }
 
             @Override
@@ -104,9 +111,7 @@ public class MainActivity extends AppCompatActivity {
                 if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.READ_EXTERNAL_STORAGE)) {
                     ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQUEST_GALLERY_PERMISSION);
                 } else {
-                    // User denied permission previously and checked "Do not ask again"
                     Toast.makeText(this, "Gallery permission is required to access gallery. Please enable it from Settings.", Toast.LENGTH_SHORT).show();
-                    // You can open the app settings page to guide users to enable permissions
                     Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
                     Uri uri = Uri.fromParts("package", getPackageName(), null);
                     intent.setData(uri);
@@ -189,7 +194,13 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == PICK_IMAGE && resultCode == RESULT_OK) {
             Uri imageUri = data.getData();
             binding.imageView.setImageURI(imageUri);
-//            uploadImage(imageUri);
+            try {
+                Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), imageUri);
+//                binding.imageView.setImageBitmap(bitmap);
+                uploadImage(bitmap);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
 
