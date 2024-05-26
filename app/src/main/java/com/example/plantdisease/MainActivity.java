@@ -4,9 +4,12 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.provider.Settings;
+import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -24,6 +27,10 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.example.plantdisease.databinding.ActivityMainBinding;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 
@@ -38,7 +45,7 @@ import retrofit2.Response;
 
 public class MainActivity extends AppCompatActivity {
     private ActivityMainBinding binding;
-    private String [] choices = {"All", "MobileNetV3", "ResNet50"};
+    private String [] choices = {"all", "mobilenetv3", "resnet50"};
     private String typeModel = "All";
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private static final int REQUEST_GALLERY_PERMISSION = 300;
@@ -93,44 +100,79 @@ public class MainActivity extends AppCompatActivity {
                 Intent gallery = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.INTERNAL_CONTENT_URI);
                 startActivityForResult(gallery, PICK_IMAGE);
             } else {
-                Toast.makeText(this, "Gallery permission is required to access gallery.", Toast.LENGTH_SHORT).show();
+                if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.READ_EXTERNAL_STORAGE)) {
+                    ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQUEST_GALLERY_PERMISSION);
+                } else {
+                    // User denied permission previously and checked "Do not ask again"
+                    Toast.makeText(this, "Gallery permission is required to access gallery. Please enable it from Settings.", Toast.LENGTH_SHORT).show();
+                    // You can open the app settings page to guide users to enable permissions
+                    Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                    Uri uri = Uri.fromParts("package", getPackageName(), null);
+                    intent.setData(uri);
+                    startActivity(intent);
+                }
             }
         });
     }
-    private void uploadImage() {
-        Bitmap bitmap = ((BitmapDrawable) binding.imageView.getDrawable()).getBitmap();
+    private void uploadImage(Bitmap bitmap) {
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
         bitmap.compress(Bitmap.CompressFormat.JPEG, 100, byteArrayOutputStream);
         byte[] imageInByte = byteArrayOutputStream.toByteArray();
 
-        RequestBody reqFile = RequestBody.create(imageInByte, MediaType.parse("image/*"));
-        MultipartBody.Part body = MultipartBody.Part.createFormData("upload", "image.jpg", reqFile);
+        if (imageInByte.length > 0) {
+            RequestBody reqFile = RequestBody.create(imageInByte, MediaType.parse("image/jpeg"));
+            MultipartBody.Part body = MultipartBody.Part.createFormData("file", "image.jpg", reqFile);
 
-        RequestBody model = RequestBody.create(typeModel, MediaType.parse("text/plain"));
+            RequestBody model = RequestBody.create(typeModel, MediaType.parse("text/plain"));
 
-        ApiInterface apiInterface = ApiClient.getApiClient().create(ApiInterface.class);
-        Call<ResponseBody> call = apiInterface.uploadImage(body, model);
+            ApiInterface apiInterface = ApiClient.getApiClient().create(ApiInterface.class);
+            Call<ResponseBody> call = apiInterface.uploadImage(body, model);
 
-        call.enqueue(new Callback<ResponseBody>() {
-            @Override
-            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
-                if (response.isSuccessful()) {
-                    try {
-                        binding.txtResult.setText(response.body().string());
-                        binding.txtResult.setVisibility(View.VISIBLE);
-                        binding.txtResultTitle.setVisibility(View.VISIBLE);
-                    } catch (IOException e) {
-                        e.printStackTrace();
+            call.enqueue(new Callback<ResponseBody>() {
+                @Override
+                public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                    if (response.isSuccessful()) {
+                        try {
+                            String responseBody = response.body().string();
+                            Log.d("API Response", "onResponse: " + responseBody);
+
+                            JSONArray jsonArray = new JSONArray(responseBody);
+                            StringBuilder formattedResult = new StringBuilder();
+                            for (int i = 0; i < jsonArray.length(); i++) {
+                                JSONObject jsonObject = jsonArray.getJSONObject(i);
+                                String option = jsonObject.getString("option");
+                                String pred = jsonObject.getString("pred");
+                                String prob = jsonObject.getString("prob");
+                                formattedResult.append("Option: ").append(option)
+                                        .append(", Prediction: ").append(pred)
+                                        .append(", Probability: ").append(prob)
+                                        .append("\n\n");
+                            }
+
+                            // Display the formatted result
+                            binding.txtResult.setText(formattedResult.toString());
+                            binding.txtResult.setVisibility(View.VISIBLE);
+                            binding.txtResultTitle.setVisibility(View.VISIBLE);
+                        } catch (IOException | JSONException e) {
+                            Log.d("API Error", "onResponse: " + e.getMessage());
+                            e.printStackTrace();
+                        }
+                    } else {
+                        Log.d("API Error", "onResponse: " + response.errorBody().toString());
                     }
                 }
-            }
 
-            @Override
-            public void onFailure(Call<ResponseBody> call, Throwable t) {
-                Toast.makeText(MainActivity.this, t.getMessage(), Toast.LENGTH_SHORT).show();
-            }
-        });
+                @Override
+                public void onFailure(Call<ResponseBody> call, Throwable t) {
+                    Toast.makeText(MainActivity.this, t.getMessage(), Toast.LENGTH_SHORT).show();
+                    Log.d("API Error", "onFailure: " + t.getMessage());
+                }
+            });
+        } else {
+            Log.d("Upload Image", "Image byte array is empty");
+        }
     }
+
 
 
     @Override
@@ -140,12 +182,13 @@ public class MainActivity extends AppCompatActivity {
             Bundle extras = data.getExtras();
             Bitmap imageBitmap = (Bitmap) extras.get("data");
             binding.imageView.setImageBitmap(imageBitmap);
-            uploadImage();
+            uploadImage(imageBitmap);
+
         }
         if (requestCode == PICK_IMAGE && resultCode == RESULT_OK) {
             Uri imageUri = data.getData();
             binding.imageView.setImageURI(imageUri);
-            uploadImage();
+//            uploadImage(imageUri);
         }
     }
 
